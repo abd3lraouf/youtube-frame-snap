@@ -29,18 +29,22 @@ Works on watch pages, Shorts (keyboard or the Tampermonkey menu), embeds and the
 
 ## Arrows
 
-Press **X**: the video pauses and the frame opens full size.
+Press **X**: the video pauses and the frame opens full size, with a toolbar under it.
 
-| Key | What it does |
+| Do | What it does |
 | --- | --- |
 | Drag | Draws an arrow (from where you press to where you let go) |
-| **C** | Next colour: red, yellow, green, blue, white |
-| **Cmd+Z** / **Ctrl+Z** or **Backspace** | Removes the last arrow |
-| **Enter** | Saves the image with the arrows, at full resolution |
-| **Shift+Enter** | Copies it instead |
-| **Esc** | Closes without saving |
+| **1**–**5** or the toolbar | Style: straight, curved, double-headed, dashed, block |
+| **C** (Shift+C back) or a swatch | Colour: red, yellow, green, blue, white |
+| **S** or S / M / L | Size |
+| **×** on an arrow | Removes that arrow |
+| **Cmd+Z** / **Ctrl+Z**, **Backspace** or Undo | Removes the last arrow |
+| **Enter** or Save | Saves the image with the arrows, at full resolution |
+| **Shift+Enter** or Copy | Copies it instead |
+| **Esc** or Cancel | Closes without saving |
 
-Arrows scale with the video's resolution and carry an outline, so they read on any frame.
+Arrows scale with the video's resolution and carry an outline, so they read on any frame. The × marks are only in the
+editor, never in the saved image. Style, colour and size are remembered.
 
 ## Files
 
