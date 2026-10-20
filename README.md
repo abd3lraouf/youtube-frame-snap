@@ -21,7 +21,8 @@ Updates arrive through Tampermonkey automatically.
 
 Works on watch pages, Shorts (keyboard or the Tampermonkey menu), embeds and the miniplayer.
 
-Files are named `Title [videoId] HH-MM-SS.mmm.png`, so you always know where a frame came from.
+Frames download like any other file, into your browser's default Downloads folder, named by video id and the
+second they were taken: `aqz-KE-bpKQ_27.663s.png`. Grabbing the same moment twice adds ` (1)`, ` (2)`.
 
 ## Format
 
@@ -30,6 +31,12 @@ The choice is remembered.
 
 The image is as sharp as the stream YouTube is playing: pick a higher quality in the player's settings first for a
 sharper frame.
+
+## No file appears?
+
+Tampermonkey saves through its own downloader. In its dashboard: **Settings** → **Config mode: Advanced** →
+**Downloads BETA**, check the whitelisted extensions include `.png` (and `.jpg`, `.webp` if you use them), and set
+**Download Mode** to **Browser API** if it still does nothing.
 
 ## License
 

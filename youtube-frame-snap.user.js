@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         YouTube Frame Snap
 // @namespace    https://github.com/abd3lraouf/youtube-frame-snap
-// @version      1.0.0
+// @version      1.1.0
 // @description  Save the current YouTube video frame as a full-resolution photo. Camera button in the player, or Alt+S. Shift+click (or Alt+Shift+S) copies it to the clipboard.
 // @author       Abdelraouf Sabri
 // @match        https://www.youtube.com/*
 // @match        https://m.youtube.com/*
 // @match        https://www.youtube-nocookie.com/embed/*
 // @icon         https://www.youtube.com/favicon.ico
+// @grant        GM_download
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
@@ -61,22 +62,9 @@
     return m ? m[1] : '';
   }
 
-  function videoTitle() {
-    const t = document.title.replace(/^\(\d+\)\s*/, '').replace(/\s*-\s*YouTube\s*$/, '').trim();
-    return t || 'YouTube';
-  }
-
-  function timecode(seconds) {
-    const ms = Math.floor((seconds % 1) * 1000);
-    const s = Math.floor(seconds);
-    const pad = (n, l = 2) => String(n).padStart(l, '0');
-    return `${pad(Math.floor(s / 3600))}-${pad(Math.floor((s % 3600) / 60))}-${pad(s % 60)}.${pad(ms, 3)}`;
-  }
-
+  // <videoId>_<seconds>s.png, e.g. aqz-KE-bpKQ_27.663s.png
   function fileName(video, ext) {
-    const title = videoTitle().replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').slice(0, 120).trim();
-    const id = videoId();
-    return `${title}${id ? ` [${id}]` : ''} ${timecode(video.currentTime)}.${ext}`;
+    return `${videoId() || 'youtube'}_${video.currentTime.toFixed(3)}s.${ext}`;
   }
 
   // ---------- capture ----------
@@ -95,12 +83,44 @@
     });
   }
 
-  function download(blob, name) {
+  function toDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+      r.readAsDataURL(blob);
+    });
+  }
+
+  function gmDownload(url, name) {
+    return new Promise((resolve, reject) => {
+      GM_download({
+        url,
+        name,
+        saveAs: false,
+        conflictAction: 'uniquify',
+        onload: resolve,
+        onerror: (e) => reject(new Error((e && (e.error || e.details)) || 'download failed')),
+        ontimeout: () => reject(new Error('download timed out')),
+      });
+    });
+  }
+
+  // Through the browser's download manager, into the default Downloads folder.
+  // A plain <a download> click from the userscript sandbox is silently dropped on YouTube.
+  async function download(blob, name) {
+    if (typeof GM_download === 'function') {
+      try {
+        return await gmDownload(blob, name);
+      } catch (e) {
+        // Older managers take only string URLs.
+        return await gmDownload(await toDataUrl(blob), name);
+      }
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = name;
-    a.style.display = 'none';
     document.body.append(a);
     a.click();
     a.remove();
@@ -119,9 +139,10 @@
         toast(`Copied ${size} frame`);
       } else {
         const f = FORMATS[format];
-        const blob = await grab(video, f.mime, f.quality);
-        download(blob, fileName(video, f.ext));
-        toast(`Saved ${size} ${f.ext.toUpperCase()}`);
+        const name = fileName(video, f.ext);
+        toast('Saving…');
+        await download(await grab(video, f.mime, f.quality), name);
+        toast(`Downloaded ${name} (${size})`);
       }
     } catch (e) {
       console.error('[YouTube Frame Snap]', e);
