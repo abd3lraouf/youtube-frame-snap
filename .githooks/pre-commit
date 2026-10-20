@@ -1,0 +1,12 @@
+#!/bin/sh
+# Bumps the patch @version when the userscript changes without a version bump,
+# so every pushed change reaches installed copies through Tampermonkey's auto-update.
+f=youtube-frame-snap.user.js
+git diff --cached --quiet -- "$f" && exit 0
+old=$(git show HEAD:"$f" 2>/dev/null | sed -n 's|^// @version *||p')
+new=$(git show :"$f" | sed -n 's|^// @version *||p')
+[ -z "$old" ] || [ "$old" != "$new" ] && exit 0
+bumped=$(echo "$new" | awk -F. '{ $NF = $NF + 1; print }' OFS=.)
+sed -i '' "s|^// @version .*|// @version      $bumped|" "$f"
+git add "$f"
+echo "pre-commit: @version $new -> $bumped"

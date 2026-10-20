@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         YouTube Frame Snap
 // @namespace    https://github.com/abd3lraouf/youtube-frame-snap
-// @version      1.1.0
-// @description  Save the current YouTube video frame as a full-resolution photo. Camera button in the player, or Alt+S. Shift+click (or Alt+Shift+S) copies it to the clipboard.
+// @version      1.2.0
+// @description  Save the current YouTube video frame as a full-resolution photo. Camera button in the player, or press Z (changeable). Shift+click (or Shift+Z) copies it to the clipboard.
 // @author       Abdelraouf Sabri
 // @match        https://www.youtube.com/*
 // @match        https://m.youtube.com/*
@@ -13,6 +13,10 @@
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @grant        GM_unregisterMenuCommand
+// @grant        GM_xmlhttpRequest
+// @grant        GM_openInTab
+// @grant        GM_info
+// @connect      raw.githubusercontent.com
 // @run-at       document-idle
 // @license      MIT
 // @homepageURL  https://github.com/abd3lraouf/youtube-frame-snap
@@ -31,8 +35,15 @@
     webp: { mime: 'image/webp', ext: 'webp', label: 'WebP (95%)', quality: 0.95 },
   };
   const ORDER = Object.keys(FORMATS);
+  const SCRIPT_URL = 'https://github.com/abd3lraouf/youtube-frame-snap/raw/main/youtube-frame-snap.user.js';
+  const RAW_URL = 'https://raw.githubusercontent.com/abd3lraouf/youtube-frame-snap/main/youtube-frame-snap.user.js';
+  const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
+  const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+  const MODS = ['Ctrl', 'Alt', 'Meta'];
 
   let format = FORMATS[GM_getValue('format')] ? GM_getValue('format') : 'png';
+  // A key code plus Alt/Ctrl/Meta, e.g. "KeyZ" or "Alt+KeyZ". Shift is kept for "copy instead".
+  let shortcut = GM_getValue('shortcut') || 'KeyZ';
 
   // ---------- picking the video ----------
 
@@ -155,7 +166,7 @@
   let toastEl = null;
   let toastTimer = 0;
 
-  function toast(text) {
+  function toast(text, { onClick = null, ms = 1800 } = {}) {
     if (!toastEl) {
       toastEl = document.createElement('div');
       Object.assign(toastEl.style, {
@@ -176,9 +187,15 @@
       document.documentElement.append(toastEl);
     }
     toastEl.textContent = text;
+    toastEl.onclick = onClick;
+    toastEl.style.pointerEvents = onClick ? 'auto' : 'none';
+    toastEl.style.cursor = onClick ? 'pointer' : '';
     toastEl.style.opacity = '1';
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (toastEl.style.opacity = '0'), 1800);
+    toastTimer = setTimeout(() => {
+      toastEl.style.opacity = '0';
+      toastEl.style.pointerEvents = 'none';
+    }, ms);
   }
 
   // ---------- player button ----------
@@ -207,7 +224,7 @@
     const b = document.createElement('button');
     b.id = BUTTON_ID;
     b.className = 'ytp-button';
-    b.title = 'Save frame (Alt+S) · Shift+click to copy';
+    b.title = buttonTitle();
     b.setAttribute('aria-label', 'Save frame');
     b.append(cameraIcon());
     b.addEventListener('click', (e) => {
@@ -239,15 +256,45 @@
 
   // ---------- keyboard ----------
 
+  function comboOf(e) {
+    const mods = MODS.filter((m) => e[`${m.toLowerCase()}Key`]);
+    return [...mods, e.code].join('+');
+  }
+
+  function label(combo) {
+    const names = { Alt: MAC ? 'Option' : 'Alt', Meta: MAC ? 'Cmd' : 'Win', Ctrl: 'Ctrl' };
+    return combo
+      .split('+')
+      .map((p) => names[p] || p.replace(/^Key|^Digit/, ''))
+      .join('+');
+  }
+
+  function buttonTitle() {
+    return `Save frame (${label(shortcut)}) · Shift+click to copy`;
+  }
+
   function typing(el) {
     return el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
   }
 
+  let recording = false;
+
   window.addEventListener(
     'keydown',
     (e) => {
-      if (!e.altKey || e.ctrlKey || e.metaKey || e.code !== 'KeyS') return;
-      if (typing(document.activeElement)) return;
+      if (recording) {
+        if (/^(Shift|Control|Alt|Meta)/.test(e.code)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        recording = false;
+        if (e.code === 'Escape') return toast('Shortcut unchanged');
+        shortcut = comboOf(e);
+        GM_setValue('shortcut', shortcut);
+        for (const b of document.querySelectorAll(`#${BUTTON_ID}`)) b.title = buttonTitle();
+        registerShortcutMenu();
+        return toast(`Shortcut is now ${label(shortcut)} (Shift+${label(shortcut)} copies)`, { ms: 3000 });
+      }
+      if (e.repeat || comboOf(e) !== shortcut || typing(document.activeElement)) return;
       e.preventDefault();
       e.stopPropagation();
       snap({ copy: e.shiftKey });
@@ -255,13 +302,54 @@
     true
   );
 
+  // ---------- updates ----------
+
+  // Tampermonkey updates from @updateURL on its own schedule (daily by default); this checks sooner and offers the update.
+  function newer(a, b) {
+    const pa = a.split('.').map(Number);
+    const pb = b.split('.').map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+    }
+    return false;
+  }
+
+  function checkForUpdate(manual = false) {
+    if (typeof GM_xmlhttpRequest !== 'function') return;
+    GM_setValue('lastUpdateCheck', Date.now());
+    GM_xmlhttpRequest({
+      method: 'GET',
+      url: `${RAW_URL}?t=${Date.now()}`,
+      onload: (r) => {
+        const m = /@version\s+([\d.]+)/.exec(r.responseText || '');
+        const current = GM_info.script.version;
+        if (m && newer(m[1], current)) {
+          toast(`YouTube Frame Snap ${m[1]} is out (you have ${current}). Click to update.`, {
+            ms: 15000,
+            onClick: () => GM_openInTab(SCRIPT_URL, { active: true }),
+          });
+        } else if (manual) {
+          toast(`YouTube Frame Snap ${current} is the latest`);
+        }
+      },
+      onerror: () => manual && toast('Could not reach GitHub to check for updates'),
+    });
+  }
+
+  if (Date.now() - (GM_getValue('lastUpdateCheck') || 0) > UPDATE_EVERY_MS) checkForUpdate();
+
   // ---------- Tampermonkey menu ----------
 
   let formatMenuId = null;
+  let shortcutMenuId = null;
+
+  function reRegister(id, title, fn) {
+    if (id !== null && typeof GM_unregisterMenuCommand === 'function') GM_unregisterMenuCommand(id);
+    return GM_registerMenuCommand(title, fn);
+  }
 
   function registerFormatMenu() {
-    if (formatMenuId !== null && typeof GM_unregisterMenuCommand === 'function') GM_unregisterMenuCommand(formatMenuId);
-    formatMenuId = GM_registerMenuCommand(`Format: ${FORMATS[format].label} (click to change)`, () => {
+    formatMenuId = reRegister(formatMenuId, `Format: ${FORMATS[format].label} (click to change)`, () => {
       format = ORDER[(ORDER.indexOf(format) + 1) % ORDER.length];
       GM_setValue('format', format);
       registerFormatMenu();
@@ -269,7 +357,16 @@
     });
   }
 
+  function registerShortcutMenu() {
+    shortcutMenuId = reRegister(shortcutMenuId, `Shortcut: ${label(shortcut)} (click to change)`, () => {
+      recording = true;
+      toast('Press the new shortcut (Esc to cancel)', { ms: 8000 });
+    });
+  }
+
   GM_registerMenuCommand('Save current frame', () => snap());
   GM_registerMenuCommand('Copy current frame', () => snap({ copy: true }));
+  registerShortcutMenu();
   registerFormatMenu();
+  GM_registerMenuCommand('Check for updates', () => checkForUpdate(true));
 })();

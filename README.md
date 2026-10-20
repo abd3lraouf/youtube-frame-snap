@@ -8,7 +8,9 @@ A Tampermonkey userscript that saves the current YouTube video frame as a photo,
 1. Install [Tampermonkey](https://www.tampermonkey.net/) (or Violentmonkey).
 2. Open **[youtube-frame-snap.user.js](https://github.com/abd3lraouf/youtube-frame-snap/raw/main/youtube-frame-snap.user.js)** and click **Install**.
 
-Updates arrive through Tampermonkey automatically.
+Updates install themselves: Tampermonkey checks the script's `@updateURL` (daily by default), and the script
+also checks GitHub every 6 hours and shows a **Click to update** notice when a newer version is out. **Check for
+updates** in the Tampermonkey menu checks right away.
 
 ## Use
 
@@ -16,8 +18,11 @@ Updates arrive through Tampermonkey automatically.
 | --- | --- |
 | Click the camera button in the player | Saves the frame |
 | **Shift**+click the camera button | Copies the frame to the clipboard (PNG) |
-| **Alt+S** (**Option+S** on Mac) | Saves the frame |
-| **Alt+Shift+S** | Copies the frame |
+| **Z** | Saves the frame |
+| **Shift+Z** | Copies the frame |
+
+Change the shortcut from the Tampermonkey menu: **Shortcut: Z (click to change)**, then press the new keys
+(any key, with Ctrl/Option/Cmd if you like; Shift is kept for copying). It is ignored while you type in search or comments.
 
 Works on watch pages, Shorts (keyboard or the Tampermonkey menu), embeds and the miniplayer.
 
@@ -37,6 +42,11 @@ sharper frame.
 Tampermonkey saves through its own downloader. In its dashboard: **Settings** → **Config mode: Advanced** →
 **Downloads BETA**, check the whitelisted extensions include `.png` (and `.jpg`, `.webp` if you use them), and set
 **Download Mode** to **Browser API** if it still does nothing.
+
+## Releasing
+
+`git config core.hooksPath .githooks` once per clone. The pre-commit hook raises the patch `@version` whenever the
+script changes without a version bump, so every push reaches installed copies.
 
 ## License
 
