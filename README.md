@@ -9,7 +9,7 @@ A Tampermonkey userscript that saves the current YouTube video frame as a photo,
 2. Open **[youtube-frame-snap.user.js](https://github.com/abd3lraouf/youtube-frame-snap/raw/main/youtube-frame-snap.user.js)** and click **Install**.
 
 Updates install themselves: Tampermonkey checks the script's `@updateURL` (daily by default), and the script
-also checks GitHub every 6 hours and shows a **Click to update** notice when a newer version is out. **Check for
+also checks GitHub every hour and shows a **Click to update** notice when a newer version is out. **Check for
 updates** in the Tampermonkey menu checks right away.
 
 ## Use

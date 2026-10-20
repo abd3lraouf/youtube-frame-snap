@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Frame Snap
 // @namespace    https://github.com/abd3lraouf/youtube-frame-snap
-// @version      1.3.0
+// @version      1.3.1
 // @description  Save the current YouTube video frame as a full-resolution photo: camera button or Z. Press X to draw arrows on the frame first, then Enter to save. Shift copies to the clipboard instead. Shortcuts are changeable.
 // @author       Abdelraouf Sabri
 // @match        https://www.youtube.com/*
@@ -37,7 +37,7 @@
   const ORDER = Object.keys(FORMATS);
   const SCRIPT_URL = 'https://github.com/abd3lraouf/youtube-frame-snap/raw/main/youtube-frame-snap.user.js';
   const RAW_URL = 'https://raw.githubusercontent.com/abd3lraouf/youtube-frame-snap/main/youtube-frame-snap.user.js';
-  const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
+  const UPDATE_EVERY_MS = 60 * 60 * 1000;
   const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
   const MODS = ['Ctrl', 'Alt', 'Meta'];
 
