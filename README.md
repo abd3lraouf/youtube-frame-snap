@@ -20,14 +20,32 @@ updates** in the Tampermonkey menu checks right away.
 | **Shift**+click the camera button | Copies the frame to the clipboard (PNG) |
 | **Z** | Saves the frame |
 | **Shift+Z** | Copies the frame |
+| **X** | Pauses and opens the frame to draw arrows on (below) |
 
-Change the shortcut from the Tampermonkey menu: **Shortcut: Z (click to change)**, then press the new keys
+Change either shortcut from the Tampermonkey menu (**Save frame shortcut: Z** / **Draw arrows shortcut: X**), then press the new keys
 (any key, with Ctrl/Option/Cmd if you like; Shift is kept for copying). It is ignored while you type in search or comments.
 
 Works on watch pages, Shorts (keyboard or the Tampermonkey menu), embeds and the miniplayer.
 
+## Arrows
+
+Press **X**: the video pauses and the frame opens full size.
+
+| Key | What it does |
+| --- | --- |
+| Drag | Draws an arrow (from where you press to where you let go) |
+| **C** | Next colour: red, yellow, green, blue, white |
+| **Cmd+Z** / **Ctrl+Z** or **Backspace** | Removes the last arrow |
+| **Enter** | Saves the image with the arrows, at full resolution |
+| **Shift+Enter** | Copies it instead |
+| **Esc** | Closes without saving |
+
+Arrows scale with the video's resolution and carry an outline, so they read on any frame.
+
+## Files
+
 Frames download like any other file, into your browser's default Downloads folder, named by video id and the
-second they were taken: `aqz-KE-bpKQ_27.663s.png`. Grabbing the same moment twice adds ` (1)`, ` (2)`.
+second they were taken: `aqz-KE-bpKQ_27.663s.png` (with arrows: `aqz-KE-bpKQ_27.663s_arrows.png`). Grabbing the same moment twice adds ` (1)`, ` (2)`.
 
 ## Format
 

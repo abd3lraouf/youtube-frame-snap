@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         YouTube Frame Snap
 // @namespace    https://github.com/abd3lraouf/youtube-frame-snap
-// @version      1.2.0
-// @description  Save the current YouTube video frame as a full-resolution photo. Camera button in the player, or press Z (changeable). Shift+click (or Shift+Z) copies it to the clipboard.
+// @version      1.3.0
+// @description  Save the current YouTube video frame as a full-resolution photo: camera button or Z. Press X to draw arrows on the frame first, then Enter to save. Shift copies to the clipboard instead. Shortcuts are changeable.
 // @author       Abdelraouf Sabri
 // @match        https://www.youtube.com/*
 // @match        https://m.youtube.com/*
@@ -42,8 +42,13 @@
   const MODS = ['Ctrl', 'Alt', 'Meta'];
 
   let format = FORMATS[GM_getValue('format')] ? GM_getValue('format') : 'png';
-  // A key code plus Alt/Ctrl/Meta, e.g. "KeyZ" or "Alt+KeyZ". Shift is kept for "copy instead".
-  let shortcut = GM_getValue('shortcut') || 'KeyZ';
+  // Shortcuts are a key code plus Alt/Ctrl/Meta, e.g. "KeyZ" or "Alt+KeyZ". Shift is kept for "copy instead".
+  const ACTIONS = {
+    save: { store: 'shortcut', fallback: 'KeyZ', title: 'Save frame' },
+    arrows: { store: 'arrowsShortcut', fallback: 'KeyX', title: 'Draw arrows' },
+  };
+  const shortcuts = {};
+  for (const [action, d] of Object.entries(ACTIONS)) shortcuts[action] = GM_getValue(d.store) || d.fallback;
 
   // ---------- picking the video ----------
 
@@ -73,18 +78,22 @@
     return m ? m[1] : '';
   }
 
-  // <videoId>_<seconds>s.png, e.g. aqz-KE-bpKQ_27.663s.png
-  function fileName(video, ext) {
-    return `${videoId() || 'youtube'}_${video.currentTime.toFixed(3)}s.${ext}`;
+  // <videoId>_<seconds>s, e.g. aqz-KE-bpKQ_27.663s (the extension comes from the format)
+  function baseName(video) {
+    return `${videoId() || 'youtube'}_${video.currentTime.toFixed(3)}s`;
   }
 
   // ---------- capture ----------
 
-  function grab(video, mime, quality) {
+  function frameCanvas(video) {
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  }
+
+  function canvasBlob(canvas, mime, quality) {
     return new Promise((resolve, reject) => {
       try {
         canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('empty image'))), mime, quality);
@@ -138,27 +147,214 @@
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
+  // Downloads a finished image, or copies it to the clipboard.
+  async function deliver(canvas, name, copy) {
+    const size = `${canvas.width}×${canvas.height}`;
+    if (copy) {
+      // The clipboard only takes PNG reliably.
+      const blob = await canvasBlob(canvas, 'image/png');
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      toast(`Copied ${size} image`);
+    } else {
+      const f = FORMATS[format];
+      const file = `${name}.${f.ext}`;
+      toast('Saving…');
+      await download(await canvasBlob(canvas, f.mime, f.quality), file);
+      toast(`Downloaded ${file} (${size})`);
+    }
+  }
+
   async function snap({ copy = false } = {}) {
     const video = activeVideo();
     if (!video) return toast('No video frame to capture yet');
-    const size = `${video.videoWidth}×${video.videoHeight}`;
     try {
-      if (copy) {
-        // The clipboard only takes PNG reliably.
-        const blob = await grab(video, 'image/png');
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-        toast(`Copied ${size} frame`);
-      } else {
-        const f = FORMATS[format];
-        const name = fileName(video, f.ext);
-        toast('Saving…');
-        await download(await grab(video, f.mime, f.quality), name);
-        toast(`Downloaded ${name} (${size})`);
-      }
+      await deliver(frameCanvas(video), baseName(video), copy);
     } catch (e) {
       console.error('[YouTube Frame Snap]', e);
       toast(`Capture failed: ${e.message}`);
     }
+  }
+
+  // ---------- arrows ----------
+
+  const COLORS = ['#ff3b30', '#ffcc00', '#34c759', '#0a84ff', '#ffffff'];
+  let editor = null;
+
+  function drawArrow(ctx, a, lw) {
+    const dx = a.x2 - a.x1;
+    const dy = a.y2 - a.y1;
+    const len = Math.hypot(dx, dy);
+    if (len < 1) return;
+    const ux = dx / len;
+    const uy = dy / len;
+    const head = Math.min(lw * 4.5, len * 0.6);
+    const wing = head * 0.6;
+    const hx = a.x2 - ux * head;
+    const hy = a.y2 - uy * head;
+    const edge = Math.max(2, lw * 0.35);
+    const outline = a.color === '#ffffff' ? '#000000' : '#ffffff';
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    // An outline pass, then the colour on top, so the arrow reads on any frame.
+    for (const [paint, width, headStroke] of [
+      [outline, lw + edge * 2, edge * 2],
+      [a.color, lw, 1],
+    ]) {
+      ctx.strokeStyle = paint;
+      ctx.fillStyle = paint;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.moveTo(a.x1, a.y1);
+      ctx.lineTo(a.x2 - ux * head * 0.8, a.y2 - uy * head * 0.8);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(a.x2, a.y2);
+      ctx.lineTo(hx - uy * wing, hy + ux * wing);
+      ctx.lineTo(hx + uy * wing, hy - ux * wing);
+      ctx.closePath();
+      ctx.lineWidth = headStroke;
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Pauses the video and opens its frame full size: drag to draw arrows, Enter saves, Shift+Enter copies, Esc closes.
+  function openArrows() {
+    if (editor) return;
+    const video = activeVideo();
+    if (!video) return toast('No video frame to capture yet');
+    video.pause();
+    let base;
+    try {
+      base = frameCanvas(video);
+    } catch (e) {
+      return toast(`Capture failed: ${e.message}`);
+    }
+    const name = `${baseName(video)}_arrows`;
+    const W = base.width;
+    const H = base.height;
+    const lw = Math.max(4, Math.round(Math.max(W, H) / 220));
+    const arrows = [];
+    let draft = null;
+    let color = Number(GM_getValue('arrowColor')) || 0;
+
+    const root = document.createElement('div');
+    Object.assign(root.style, {
+      position: 'fixed',
+      inset: '0',
+      zIndex: '2147483646',
+      background: 'rgba(0,0,0,.85)',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '14px',
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    Object.assign(canvas.style, {
+      maxWidth: 'calc(100vw - 48px)',
+      maxHeight: 'calc(100vh - 100px)',
+      cursor: 'crosshair',
+      touchAction: 'none',
+      boxShadow: '0 8px 40px rgba(0,0,0,.6)',
+    });
+    const hint = document.createElement('div');
+    Object.assign(hint.style, {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '10px',
+      color: '#fff',
+      font: '500 14px/1.4 Roboto, Arial, sans-serif',
+      padding: '0 16px',
+      textAlign: 'center',
+    });
+    const swatch = document.createElement('span');
+    Object.assign(swatch.style, { width: '16px', height: '16px', borderRadius: '50%', border: '2px solid #fff', flex: 'none' });
+    const help = document.createElement('span');
+    help.textContent = `Drag to draw arrows · C colour · ${MAC ? 'Cmd' : 'Ctrl'}+Z undo · Enter save · Shift+Enter copy · Esc cancel`;
+    hint.append(swatch, help);
+    root.append(canvas, hint);
+    document.documentElement.append(root);
+
+    const ctx = canvas.getContext('2d');
+    let queued = false;
+    function render() {
+      queued = false;
+      ctx.drawImage(base, 0, 0);
+      for (const a of arrows) drawArrow(ctx, a, lw);
+      if (draft) drawArrow(ctx, draft, lw);
+      swatch.style.background = COLORS[color];
+    }
+    function schedule() {
+      if (!queued) {
+        queued = true;
+        requestAnimationFrame(render);
+      }
+    }
+    render();
+
+    function point(e) {
+      const r = canvas.getBoundingClientRect();
+      return { x: ((e.clientX - r.left) * W) / r.width, y: ((e.clientY - r.top) * H) / r.height };
+    }
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      canvas.setPointerCapture(e.pointerId);
+      const p = point(e);
+      draft = { x1: p.x, y1: p.y, x2: p.x, y2: p.y, color: COLORS[color] };
+      schedule();
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!draft) return;
+      const p = point(e);
+      draft.x2 = p.x;
+      draft.y2 = p.y;
+      schedule();
+    });
+    const lift = () => {
+      if (draft && Math.hypot(draft.x2 - draft.x1, draft.y2 - draft.y1) > lw * 3) arrows.push(draft);
+      draft = null;
+      schedule();
+    };
+    canvas.addEventListener('pointerup', lift);
+    canvas.addEventListener('pointercancel', lift);
+
+    function close() {
+      root.remove();
+      editor = null;
+    }
+
+    async function finish(copy) {
+      draft = null;
+      render();
+      close();
+      try {
+        await deliver(canvas, name, copy);
+      } catch (e) {
+        console.error('[YouTube Frame Snap]', e);
+        toast(`Export failed: ${e.message}`);
+      }
+    }
+
+    editor = {
+      // Every key stays inside the editor so YouTube's own shortcuts don't fire underneath it.
+      key(e) {
+        e.stopPropagation();
+        if (e.code === 'Escape') close();
+        else if (e.code === 'Enter' || e.code === 'NumpadEnter') finish(e.shiftKey);
+        else if ((e.code === 'KeyZ' && (e.metaKey || e.ctrlKey)) || e.code === 'Backspace') arrows.pop();
+        else if (e.code === 'KeyC' && !e.metaKey && !e.ctrlKey) {
+          color = (color + 1) % COLORS.length;
+          GM_setValue('arrowColor', color);
+        } else return;
+        e.preventDefault();
+        schedule();
+      },
+    };
   }
 
   // ---------- toast ----------
@@ -270,14 +466,14 @@
   }
 
   function buttonTitle() {
-    return `Save frame (${label(shortcut)}) · Shift+click to copy`;
+    return `Save frame (${label(shortcuts.save)}) · Shift+click to copy · ${label(shortcuts.arrows)} to draw arrows`;
   }
 
   function typing(el) {
     return el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
   }
 
-  let recording = false;
+  let recording = null; // the action whose new shortcut is being pressed
 
   window.addEventListener(
     'keydown',
@@ -286,18 +482,27 @@
         if (/^(Shift|Control|Alt|Meta)/.test(e.code)) return;
         e.preventDefault();
         e.stopPropagation();
-        recording = false;
+        const action = recording;
+        recording = null;
         if (e.code === 'Escape') return toast('Shortcut unchanged');
-        shortcut = comboOf(e);
-        GM_setValue('shortcut', shortcut);
+        const combo = comboOf(e);
+        const taken = Object.keys(ACTIONS).find((a) => a !== action && shortcuts[a] === combo);
+        if (taken) return toast(`${label(combo)} is already ${ACTIONS[taken].title}`);
+        shortcuts[action] = combo;
+        GM_setValue(ACTIONS[action].store, combo);
         for (const b of document.querySelectorAll(`#${BUTTON_ID}`)) b.title = buttonTitle();
-        registerShortcutMenu();
-        return toast(`Shortcut is now ${label(shortcut)} (Shift+${label(shortcut)} copies)`, { ms: 3000 });
+        registerShortcutMenus();
+        return toast(`${ACTIONS[action].title} is now ${label(combo)}`, { ms: 3000 });
       }
-      if (e.repeat || comboOf(e) !== shortcut || typing(document.activeElement)) return;
+      if (editor) return editor.key(e);
+      if (e.repeat || typing(document.activeElement)) return;
+      const combo = comboOf(e);
+      const action = Object.keys(ACTIONS).find((a) => shortcuts[a] === combo);
+      if (!action) return;
       e.preventDefault();
       e.stopPropagation();
-      snap({ copy: e.shiftKey });
+      if (action === 'save') snap({ copy: e.shiftKey });
+      else openArrows();
     },
     true
   );
@@ -341,7 +546,7 @@
   // ---------- Tampermonkey menu ----------
 
   let formatMenuId = null;
-  let shortcutMenuId = null;
+  const shortcutMenuIds = {};
 
   function reRegister(id, title, fn) {
     if (id !== null && typeof GM_unregisterMenuCommand === 'function') GM_unregisterMenuCommand(id);
@@ -357,16 +562,20 @@
     });
   }
 
-  function registerShortcutMenu() {
-    shortcutMenuId = reRegister(shortcutMenuId, `Shortcut: ${label(shortcut)} (click to change)`, () => {
-      recording = true;
-      toast('Press the new shortcut (Esc to cancel)', { ms: 8000 });
-    });
+  function registerShortcutMenus() {
+    for (const [action, d] of Object.entries(ACTIONS)) {
+      const title = `${d.title} shortcut: ${label(shortcuts[action])} (click to change)`;
+      shortcutMenuIds[action] = reRegister(shortcutMenuIds[action] ?? null, title, () => {
+        recording = action;
+        toast(`Press the new ${d.title} shortcut (Esc to cancel)`, { ms: 8000 });
+      });
+    }
   }
 
   GM_registerMenuCommand('Save current frame', () => snap());
   GM_registerMenuCommand('Copy current frame', () => snap({ copy: true }));
-  registerShortcutMenu();
+  GM_registerMenuCommand('Draw arrows on current frame', () => openArrows());
+  registerShortcutMenus();
   registerFormatMenu();
   GM_registerMenuCommand('Check for updates', () => checkForUpdate(true));
 })();
